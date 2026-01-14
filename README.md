@@ -32,7 +32,7 @@ By completing this task, you will learn:
    task/
    ├── _constants.py                # ✅ API configuration
    ├── microwave_manual.txt         # ✅ Knowledge base document
-   └── app.py                       # 🚧 TODO - Your main implementation
+   └── app.py                       # ✅ Main implementation
    ```
 ## 🖌️ Application diagram:
 

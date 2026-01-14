@@ -52,7 +52,17 @@ class MicrowaveRAG:
         #  - Otherwise:
         #       - Create new index
         #  Return create vectorstore
-        return None
+        if os.path.exists('microwave_faiss_index'):
+            vectorstore = FAISS.load_local(
+                folder_path='microwave_faiss_index',
+                embeddings=self.embeddings,
+                allow_dangerous_deserialization=True,
+            )
+            print("Loaded existing FAISS index")
+        else:
+            vectorstore = self._create_new_index()
+            print("RAG system initialized successfully!")
+        return vectorstore
 
     def _create_new_index(self) -> VectorStore:
         print("📖 Loading text document...")
@@ -69,7 +79,23 @@ class MicrowaveRAG:
         #  5. Create vectorstore from documents
         #  6. Save indexed data locally with index name "microwave_faiss_index"
         #  7. Return created vectorstore
-        return None
+        loader = TextLoader('microwave_manual.txt', encoding='utf-8')
+        documents = loader.load()
+
+        print("✂️ Splitting document into chunks...")
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=300,
+            chunk_overlap=50,
+            separators=["\n\n", "\n", "."]
+        )
+        chunks = text_splitter.split_documents(documents)
+        print(f"Created {len(chunks)} chunks")
+
+        print("Creating embeddings and FAISS index...")
+        vectorstore = FAISS.from_documents(chunks, self.embeddings)
+        vectorstore.save_local("microwave_faiss_index")
+        print("Index saved for future use")
+        return vectorstore
 
     def retrieve_context(self, query: str, k: int = 4, score=0.3) -> str:
         """
@@ -88,13 +114,23 @@ class MicrowaveRAG:
         #       - query=query
         #       - k=k
         #       - score_threshold=score
+        relevant_docs = self.vectorstore.similarity_search_with_relevance_scores(
+            query,
+            k=k,
+            score_threshold=score
+        )
 
         context_parts = []
+
         # TODO:
         #  Iterate through results and:
         #       - add page content to the context_parts array
         #       - print result score
         #       - print page content
+        for (doc, score) in relevant_docs:
+            context_parts.append(doc.page_content)
+            print(f"\n--- (Relevance Score: {score:.3f}) ---")
+            print(f"Content: {doc.page_content}")
 
         print("=" * 100)
         return "\n\n".join(context_parts) # will join all chunks ion one string with `\n\n` separator between chunks
@@ -117,8 +153,15 @@ class MicrowaveRAG:
         #  2. Invoke llm client with messages
         #  3. print response content
         #  4. Return response content
-        return None
+        messages = [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=augmented_prompt)
+        ]
 
+        response = self.llm_client.invoke(messages)
+
+        print(f"{response.content}\n{'=' * 100}")
+        return response.content
 
 def main(rag: MicrowaveRAG):
     print("🎯 Microwave RAG Assistant")
@@ -129,7 +172,12 @@ def main(rag: MicrowaveRAG):
         # Step 1: make Retrieval of context
         # Step 2: Augmentation
         # Step 3: Generation
-
+        # Step 1: Retrieval
+        context = rag.retrieve_context(user_question) # Here you can play with `k` and similarity score params
+        # Step 2: Augmentation
+        augmented_prompt = rag.augment_prompt(user_question, context)
+        # Step 3: Generation
+        answer = rag.generate_answer(augmented_prompt)
 
 
 main(
@@ -147,5 +195,17 @@ main(
         #       - azure_endpoint is the DIAL_URL
         #       - api_key is the SecretStr from API_KEY
         #       - api_version=""
+        embeddings=AzureOpenAIEmbeddings(
+            deployment='text-embedding-3-small-1',
+            azure_endpoint=DIAL_URL,
+            api_key=SecretStr(API_KEY),
+        ),
+        llm_client=AzureChatOpenAI(
+            temperature=0.0,
+            azure_deployment='gpt-4o',
+            azure_endpoint=DIAL_URL,
+            api_key=SecretStr(API_KEY),
+            api_version=""
+        )
     )
 )
